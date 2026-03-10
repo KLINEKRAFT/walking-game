@@ -1,148 +1,420 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Walking Game</title>
+<title>Colin's Walk</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #ffffff;
-    overflow: hidden;
-    width: 100vw; height: 100vh;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  #hint {
-    position: fixed;
-    bottom: 32px; left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.08);
-    color: #555;
-    padding: 10px 22px;
-    border-radius: 30px;
-    font-size: 13px;
-    letter-spacing: 0.08em;
-    pointer-events: none;
-    transition: opacity 0.6s;
-    white-space: nowrap;
-    font-family: 'Courier New', monospace;
-  }
-  #hint.hidden { opacity: 0; }
-</style>
-</head>
-<body>
-<canvas id="c"></canvas>
-<div id="hint">TAP &amp; HOLD to walk · RELEASE to stop</div>
-<script>
-const canvas = document.getElementById('c');
-const ctx    = canvas.getContext('2d');
-const hint   = document.getElementById('hint');
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
-// Frame coordinates verified visually
-const SRC_FRAMES = [
-  { sx: 213, sy: 156, sw: 202, sh: 503 },
-  { sx: 420, sy: 156, sw: 202, sh: 503 },
-  { sx: 627, sy: 156, sw: 202, sh: 503 },
-  { sx: 828, sy: 156, sw: 202, sh: 503 },
-  { sx:1031, sy: 156, sw: 202, sh: 503 },
-];
-const FRAME_COUNT = SRC_FRAMES.length;
+- { margin: 0; padding: 0; box-sizing: border-box; image-rendering: pixelated; }
 
-const SPEED        = 3;
-const SCALE        = 0.42;
-const FPS          = 10;
-const MS_PER_FRAME = 1000 / FPS;
-const GROUND_RATIO = 0.78;
-
-let canvasW, canvasH, charH, charW, x, y;
-let isWalking = false;
-let frame = 0, frameTimer = 0, lastTime = 0;
-
-function resize() {
-  canvasW = canvas.width  = window.innerWidth;
-  canvasH = canvas.height = window.innerHeight;
-  const f0 = SRC_FRAMES[0];
-  charH = canvasH * SCALE;
-  charW = charH * (f0.sw / f0.sh);
-  y = canvasH * GROUND_RATIO - charH * 0.5;
-  if (x === undefined) x = canvasW * 0.25;
+body {
+background: #0a0a1a;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+height: 100vh;
+font-family: ‘Press Start 2P’, monospace;
+overflow: hidden;
 }
 
-function drawShadow(cx, cy, dw) {
+#title {
+color: #ffe066;
+font-size: 22px;
+margin-bottom: 18px;
+text-shadow: 3px 3px 0 #b8860b, 0 0 20px #ffe06688;
+letter-spacing: 2px;
+}
+
+#game-wrapper {
+position: relative;
+border: 4px solid #ffe066;
+box-shadow: 0 0 0 4px #b8860b, 0 0 40px #ffe06644;
+}
+
+canvas {
+display: block;
+background: #000;
+}
+
+#score-bar {
+display: flex;
+justify-content: space-between;
+align-items: center;
+background: #111122;
+border: 4px solid #ffe066;
+border-top: none;
+padding: 8px 18px;
+color: #ffe066;
+font-size: 11px;
+letter-spacing: 1px;
+}
+
+#instructions {
+margin-top: 16px;
+color: #7799ff;
+font-size: 9px;
+text-align: center;
+letter-spacing: 1px;
+opacity: 0.8;
+animation: blink 1.4s step-end infinite;
+}
+
+@keyframes blink {
+0%, 100% { opacity: 0.8; }
+50% { opacity: 0.2; }
+}
+</style>
+
+</head>
+<body>
+
+<div id="title">🕹 COLIN'S WALK 🕹</div>
+
+<div id="game-wrapper">
+  <canvas id="gameCanvas" width="900" height="320"></canvas>
+  <div id="score-bar">
+    <span>SCORE: <span id="scoreVal">0</span></span>
+    <span>DIST: <span id="distVal">0</span>M</span>
+    <span>SPEED: <span id="speedVal">1</span>X</span>
+  </div>
+</div>
+<div id="instructions">← → ARROW KEYS OR A/D TO WALK &nbsp;|&nbsp; HOLD TO RUN</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+// --- Sprite sheet ---
+const spriteImg = new Image();
+spriteImg.src = 'colin_walk.png';
+
+// Sprite: 6 frames, strip is ~1400px wide based on image
+// We'll measure after load
+const FRAME_COUNT = 6;
+let frameW = 0, frameH = 0;
+
+spriteImg.onload = () => {
+  frameW = Math.round(spriteImg.width / FRAME_COUNT);
+  frameH = spriteImg.height;
+  gameLoop();
+};
+
+// --- Game state ---
+const W = canvas.width, H = canvas.height;
+const GROUND_Y = H - 70;
+const SPRITE_SCALE = 1.0;
+
+let frame = 0;
+let frameTick = 0;
+const FRAME_SPEED_BASE = 8; // ticks per frame at normal speed
+
+let playerX = 80;
+let bgOffset = 0;
+let score = 0;
+let distance = 0;
+let isMoving = false;
+let isRunning = false;
+let gameSpeed = 1;
+
+// --- Keys ---
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key] = true; });
+window.addEventListener('keyup',   e => { keys[e.key] = false; });
+
+function isWalkKey() {
+  return keys['ArrowRight'] || keys['d'] || keys['D'] ||
+         keys['ArrowLeft']  || keys['a'] || keys['A'];
+}
+function isRunKey() {
+  return isWalkKey() && (keys['Shift'] || keys['ArrowRight'] || keys['d'] || keys['D']);
+}
+
+// --- Stars (parallax bg layer 1) ---
+const stars = Array.from({length: 60}, () => ({
+  x: Math.random() * W, y: Math.random() * (GROUND_Y * 0.55),
+  size: Math.random() < 0.2 ? 2 : 1,
+  speed: 0.08 + Math.random() * 0.12
+}));
+
+// --- City buildings (parallax layer 2) ---
+const PALETTE_BUILDINGS = ['#1a1a3a','#22223a','#161628','#1e1e3a','#12122a'];
+const PALETTE_WINDOWS  = ['#ffe066','#ff9944','#88ccff','#ff4488','#44ffbb'];
+
+function makeBuildingSet(startX) {
+  const buildings = [];
+  let x = startX;
+  while (x < startX + W * 2) {
+    const w = 40 + Math.floor(Math.random() * 70);
+    const h = 60 + Math.floor(Math.random() * 160);
+    const color = PALETTE_BUILDINGS[Math.floor(Math.random() * PALETTE_BUILDINGS.length)];
+    const windows = [];
+    for (let wy = GROUND_Y - h + 10; wy < GROUND_Y - 10; wy += 18) {
+      for (let wx = x + 6; wx < x + w - 6; wx += 14) {
+        if (Math.random() > 0.35) {
+          windows.push({ x: wx, y: wy, c: PALETTE_WINDOWS[Math.floor(Math.random()*PALETTE_WINDOWS.length)], on: Math.random() > 0.3 });
+        }
+      }
+    }
+    buildings.push({ x, w, h, color, windows });
+    x += w + 2 + Math.floor(Math.random() * 8);
+  }
+  return buildings;
+}
+
+let buildings = makeBuildingSet(-W);
+let bgScroll = 0;
+
+// --- Ground tiles ---
+const TILE_W = 32;
+let tileOffset = 0;
+
+// --- Obstacles (cracks/rocks on ground) ---
+const obstacles = [];
+function spawnObstacle() {
+  obstacles.push({ x: W + 20, type: Math.random() > 0.5 ? 'crack' : 'rock' });
+}
+let obstacleTick = 0;
+
+// --- Score popup ---
+const popups = [];
+
+// --- Draw helpers ---
+function drawStarField(scrollFactor) {
+  stars.forEach(s => {
+    const sx = ((s.x - bgScroll * s.speed * scrollFactor) % W + W) % W;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx, s.y, s.size, s.size);
+  });
+}
+
+function drawBuildings(scrollFactor) {
   ctx.save();
-  ctx.translate(cx, cy + charH * 0.5);
-  ctx.scale(1, 0.25);
-  const g = ctx.createRadialGradient(0, 0, 2, 0, 0, dw * 0.5);
-  g.addColorStop(0, 'rgba(0,0,0,0.18)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, dw * 0.5, charH * 0.08, 0, 0, Math.PI * 2);
-  ctx.fill();
+  buildings.forEach(b => {
+    const bx = b.x - bgScroll * scrollFactor;
+    if (bx > W + 200 || bx + b.w < -200) return;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(bx, GROUND_Y - b.h, b.w, b.h);
+    // windows
+    b.windows.forEach(w => {
+      if (!w.on) return;
+      const wx = w.x + (bx - b.x);
+      ctx.fillStyle = w.c;
+      ctx.fillRect(wx, w.y, 8, 6);
+    });
+    // roof detail
+    ctx.fillStyle = '#ffffff22';
+    ctx.fillRect(bx, GROUND_Y - b.h, b.w, 2);
+  });
   ctx.restore();
 }
 
-const sprite = new Image();
-sprite.src = 'walking.PNG';
+function drawGround() {
+  // Sky gradient band
+  const grad = ctx.createLinearGradient(0, GROUND_Y - 40, 0, GROUND_Y);
+  grad.addColorStop(0, '#110022');
+  grad.addColorStop(1, '#220033');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, GROUND_Y - 40, W, 40);
 
-function loop(ts) {
-  requestAnimationFrame(loop);
-  const dt = ts - lastTime;
-  lastTime = ts;
+  // Sidewalk
+  ctx.fillStyle = '#2a2a3a';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
 
-  if (isWalking) {
-    frameTimer += dt;
-    if (frameTimer >= MS_PER_FRAME) {
-      frame = (frame + 1) % FRAME_COUNT;
-      frameTimer = 0;
-    }
-    x += SPEED;
-    if (x > canvasW + charW) x = -charW;
+  // Ground line
+  ctx.fillStyle = '#ffe066';
+  ctx.fillRect(0, GROUND_Y, W, 3);
+
+  // Tiles
+  ctx.fillStyle = '#333344';
+  for (let i = 0; i < Math.ceil(W / TILE_W) + 2; i++) {
+    const tx = ((i * TILE_W) - (tileOffset % TILE_W));
+    ctx.fillRect(tx, GROUND_Y + 3, 1, H - GROUND_Y - 3);
   }
+  // Horizontal grout lines
+  ctx.fillStyle = '#333344';
+  ctx.fillRect(0, GROUND_Y + 3 + 15, W, 1);
+  ctx.fillRect(0, GROUND_Y + 3 + 30, W, 1);
+}
 
-  ctx.clearRect(0, 0, canvasW, canvasH);
+function drawObstacles() {
+  obstacles.forEach(o => {
+    if (o.type === 'crack') {
+      ctx.strokeStyle = '#ffe06688';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(o.x, GROUND_Y + 4);
+      ctx.lineTo(o.x + 8, GROUND_Y + 10);
+      ctx.lineTo(o.x + 16, GROUND_Y + 5);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#665544';
+      ctx.fillRect(o.x, GROUND_Y - 6, 12, 8);
+      ctx.fillStyle = '#887766';
+      ctx.fillRect(o.x + 2, GROUND_Y - 8, 8, 4);
+    }
+  });
+}
 
-  // Subtle ground line
-  const gy = y + charH * 0.52;
-  const lg = ctx.createLinearGradient(0, 0, canvasW, 0);
-  lg.addColorStop(0,   'rgba(200,200,200,0)');
-  lg.addColorStop(0.2, 'rgba(200,200,200,0.4)');
-  lg.addColorStop(0.8, 'rgba(200,200,200,0.4)');
-  lg.addColorStop(1,   'rgba(200,200,200,0)');
-  ctx.strokeStyle = lg;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, gy); ctx.lineTo(canvasW, gy);
-  ctx.stroke();
+function drawPlayer() {
+  if (frameW === 0) return;
+  const dw = frameW * SPRITE_SCALE;
+  const dh = frameH * SPRITE_SCALE;
+  ctx.drawImage(
+    spriteImg,
+    frame * frameW, 0, frameW, frameH,
+    playerX - dw / 2, GROUND_Y - dh,
+    dw, dh
+  );
+}
 
-  if (sprite.complete && sprite.naturalWidth > 0) {
-    const f  = SRC_FRAMES[frame];
-    const dw = charH * (f.sw / f.sh);
-    const dx = x - dw * 0.5;
-    drawShadow(x, y, dw);
-    ctx.drawImage(sprite, f.sx, f.sy, f.sw, f.sh, dx, y, dw, charH);
+function drawHUD() {
+  // Score popups
+  popups.forEach((p, i) => {
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = '#ffe066';
+    ctx.font = '8px "Press Start 2P"';
+    ctx.fillText('+' + p.val, p.x, p.y);
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawScanlines() {
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let y = 0; y < H; y += 4) {
+    ctx.fillRect(0, y, W, 2);
   }
 }
 
-function startWalk() { isWalking = true;  hint.classList.add('hidden'); }
-function stopWalk()  { isWalking = false; frame = 0; frameTimer = 0; }
+function drawMoon() {
+  ctx.fillStyle = '#fffde8';
+  ctx.beginPath();
+  ctx.arc(W - 80, 50, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e8e0b0';
+  ctx.beginPath();
+  ctx.arc(W - 72, 44, 5, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(W - 88, 56, 3, 0, Math.PI*2);
+  ctx.fill();
+  // glow
+  const mg = ctx.createRadialGradient(W-80, 50, 10, W-80, 50, 50);
+  mg.addColorStop(0, 'rgba(255,253,200,0.18)');
+  mg.addColorStop(1, 'rgba(255,253,200,0)');
+  ctx.fillStyle = mg;
+  ctx.beginPath();
+  ctx.arc(W-80, 50, 50, 0, Math.PI*2);
+  ctx.fill();
+}
 
-canvas.addEventListener('touchstart',  e => { e.preventDefault(); startWalk(); }, { passive: false });
-canvas.addEventListener('touchend',    e => { e.preventDefault(); stopWalk();  }, { passive: false });
-canvas.addEventListener('touchcancel', e => { e.preventDefault(); stopWalk();  }, { passive: false });
-canvas.addEventListener('mousedown',  startWalk);
-canvas.addEventListener('mouseup',    stopWalk);
-canvas.addEventListener('mouseleave', stopWalk);
-document.addEventListener('keydown', e => { if (e.code==='Space'||e.code==='ArrowRight') startWalk(); });
-document.addEventListener('keyup',   e => { if (e.code==='Space'||e.code==='ArrowRight') stopWalk(); });
+// --- Main loop ---
+let lastTime = 0;
+let tick = 0;
 
-window.addEventListener('resize', resize);
-resize();
-setTimeout(() => hint.classList.add('hidden'), 4000);
-sprite.onload = () => requestAnimationFrame(loop);
+function gameLoop(ts = 0) {
+  tick++;
+
+  // Input
+  isMoving = isWalkKey();
+  isRunning = isMoving && keys['Shift'];
+
+  const walkSpeed = isRunning ? 5 : 2.5;
+  gameSpeed = isRunning ? 2 : 1;
+
+  if (isMoving) {
+    // Scroll the world
+    const scroll = walkSpeed;
+    bgScroll += scroll;
+    tileOffset += scroll;
+
+    // Distance & score
+    distance += scroll * 0.05;
+    score += isRunning ? 2 : 1;
+
+    obstacleTick++;
+    if (obstacleTick > 120 / gameSpeed) {
+      spawnObstacle();
+      obstacleTick = 0;
+    }
+
+    // Animate sprite
+    const fs = Math.max(2, Math.round(FRAME_SPEED_BASE / gameSpeed));
+    frameTick++;
+    if (frameTick >= fs) {
+      frame = (frame + 1) % FRAME_COUNT;
+      frameTick = 0;
+    }
+  } else {
+    frame = 0; // idle pose
+    frameTick = 0;
+  }
+
+  // Move obstacles
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    obstacles[i].x -= walkSpeed;
+    if (obstacles[i].x < -50) obstacles.splice(i, 1);
+  }
+
+  // Popups
+  if (isMoving && tick % 60 === 0) {
+    popups.push({ x: playerX + 20, y: GROUND_Y - 80, val: isRunning ? 10 : 5, alpha: 1 });
+  }
+  for (let i = popups.length - 1; i >= 0; i--) {
+    popups[i].y -= 0.8;
+    popups[i].alpha -= 0.015;
+    if (popups[i].alpha <= 0) popups.splice(i, 1);
+  }
+
+  // Keep buildings looping
+  if (bgScroll > W * 1.5) {
+    buildings = buildings.map(b => ({ ...b, x: b.x + W * 0.5 }));
+    // Add more buildings at the far right
+    const lastX = Math.max(...buildings.map(b => b.x + b.w));
+    const newBuildings = makeBuildingSet(lastX + 10);
+    buildings.push(...newBuildings);
+    // Remove far left
+    buildings = buildings.filter(b => b.x + b.w > bgScroll - W);
+    bgScroll = 0;
+    buildings = buildings.map(b => ({ ...b, x: b.x - 0 }));
+  }
+
+  // --- DRAW ---
+  // Sky
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  sky.addColorStop(0, '#05050f');
+  sky.addColorStop(0.6, '#0d0d2b');
+  sky.addColorStop(1, '#1a0a2e');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  drawMoon();
+  drawStarField(0.3);
+  drawBuildings(0.6);
+  drawGround();
+  drawObstacles();
+  drawPlayer();
+  drawHUD();
+  drawScanlines();
+
+  // Update DOM
+  document.getElementById('scoreVal').textContent = score;
+  document.getElementById('distVal').textContent = Math.floor(distance);
+  document.getElementById('speedVal').textContent = gameSpeed;
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Fallback if image already loaded
+if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+  frameW = Math.round(spriteImg.width / FRAME_COUNT);
+  frameH = spriteImg.height;
+  gameLoop();
+}
 </script>
+
 </body>
 </html>
