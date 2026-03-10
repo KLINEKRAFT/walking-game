@@ -9,8 +9,7 @@
   body {
     background: #ffffff;
     overflow: hidden;
-    width: 100vw;
-    height: 100vh;
+    width: 100vw; height: 100vh;
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
@@ -18,8 +17,7 @@
   canvas { display: block; width: 100vw; height: 100vh; }
   #hint {
     position: fixed;
-    bottom: 32px;
-    left: 50%;
+    bottom: 32px; left: 50%;
     transform: translateX(-50%);
     background: rgba(0,0,0,0.08);
     color: #555;
@@ -38,30 +36,26 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hint">TAP &amp; HOLD to walk · RELEASE to stop</div>
-
 <script>
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 const hint   = document.getElementById('hint');
 
-// --- Exact sprite frame data (from pixel analysis) ---
-// Source image: 1429 x 803, RGBA
-// Content rows: 156 to 659  (height 503)
-// 5 frames starting at x=199, each ~201px wide
+// Frame coordinates verified visually
 const SRC_FRAMES = [
-  { sx: 199, sy: 156, sw: 201, sh: 503 },
-  { sx: 400, sy: 156, sw: 201, sh: 503 },
-  { sx: 601, sy: 156, sw: 202, sh: 503 },
-  { sx: 803, sy: 156, sw: 201, sh: 503 },
-  { sx:1004, sy: 156, sw: 202, sh: 503 },
+  { sx: 213, sy: 156, sw: 202, sh: 503 },
+  { sx: 420, sy: 156, sw: 202, sh: 503 },
+  { sx: 627, sy: 156, sw: 202, sh: 503 },
+  { sx: 828, sy: 156, sw: 202, sh: 503 },
+  { sx:1031, sy: 156, sw: 202, sh: 503 },
 ];
 const FRAME_COUNT = SRC_FRAMES.length;
 
-const SPEED         = 3;
-const SCALE         = 0.42;
-const FPS           = 10;
-const MS_PER_FRAME  = 1000 / FPS;
-const GROUND_RATIO  = 0.78;
+const SPEED        = 3;
+const SCALE        = 0.42;
+const FPS          = 10;
+const MS_PER_FRAME = 1000 / FPS;
+const GROUND_RATIO = 0.78;
 
 let canvasW, canvasH, charH, charW, x, y;
 let isWalking = false;
@@ -70,8 +64,9 @@ let frame = 0, frameTimer = 0, lastTime = 0;
 function resize() {
   canvasW = canvas.width  = window.innerWidth;
   canvasH = canvas.height = window.innerHeight;
+  const f0 = SRC_FRAMES[0];
   charH = canvasH * SCALE;
-  charW = charH * (SRC_FRAMES[0].sw / SRC_FRAMES[0].sh);
+  charW = charH * (f0.sw / f0.sh);
   y = canvasH * GROUND_RATIO - charH * 0.5;
   if (x === undefined) x = canvasW * 0.25;
 }
@@ -120,21 +115,18 @@ function loop(ts) {
   ctx.strokeStyle = lg;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(0, gy);
-  ctx.lineTo(canvasW, gy);
+  ctx.moveTo(0, gy); ctx.lineTo(canvasW, gy);
   ctx.stroke();
 
   if (sprite.complete && sprite.naturalWidth > 0) {
     const f  = SRC_FRAMES[frame];
     const dw = charH * (f.sw / f.sh);
     const dx = x - dw * 0.5;
-
     drawShadow(x, y, dw);
     ctx.drawImage(sprite, f.sx, f.sy, f.sw, f.sh, dx, y, dw, charH);
   }
 }
 
-// Input
 function startWalk() { isWalking = true;  hint.classList.add('hidden'); }
 function stopWalk()  { isWalking = false; frame = 0; frameTimer = 0; }
 
@@ -144,8 +136,8 @@ canvas.addEventListener('touchcancel', e => { e.preventDefault(); stopWalk();  }
 canvas.addEventListener('mousedown',  startWalk);
 canvas.addEventListener('mouseup',    stopWalk);
 canvas.addEventListener('mouseleave', stopWalk);
-document.addEventListener('keydown',  e => { if (e.code === 'Space' || e.code === 'ArrowRight') startWalk(); });
-document.addEventListener('keyup',    e => { if (e.code === 'Space' || e.code === 'ArrowRight') stopWalk();  });
+document.addEventListener('keydown', e => { if (e.code==='Space'||e.code==='ArrowRight') startWalk(); });
+document.addEventListener('keyup',   e => { if (e.code==='Space'||e.code==='ArrowRight') stopWalk(); });
 
 window.addEventListener('resize', resize);
 resize();
