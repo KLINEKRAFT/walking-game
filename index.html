@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Walking Game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #ffffff;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    font-family: 'Courier New', monospace;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #hint {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.08);
+    color: #555;
+    padding: 10px 22px;
+    border-radius: 30px;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    transition: opacity 0.6s;
+    white-space: nowrap;
+  }
+
+  #hint.hidden { opacity: 0; }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hint">TAP &amp; HOLD to walk · RELEASE to stop</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hint = document.getElementById('hint');
+
+// --- Config ---
+const FRAME_COUNT = 5;
+const IMG_W = 1429;
+const IMG_H = 803;
+const FRAME_W = IMG_W / FRAME_COUNT; // ~285.8
+const SPEED = 3;           // px per frame while walking
+const SCALE = 0.35;        // render scale
+const FPS = 10;            // animation fps
+const GROUND_RATIO = 0.78; // vertical position
+
+let canvasW, canvasH;
+let charW, charH;
+let x, y;
+
+// State
+let isWalking = false;
+let frame = 0;
+let frameTimer = 0;
+const MS_PER_FRAME = 1000 / FPS;
+
+// Shadow
+function drawShadow(cx, cy) {
+  const sw = charW * 0.55;
+  const sh = charH * 0.06;
+  ctx.save();
+  ctx.translate(cx, cy + charH * 0.5);
+  ctx.scale(1, 0.3);
+  const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, sw * 0.5);
+  grad.addColorStop(0, 'rgba(0,0,0,0.18)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, sw * 0.5, sh * 2.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+const sprite = new Image();
+sprite.src = 'walking.png';
+
+let lastTime = 0;
+
+function resize() {
+  canvasW = canvas.width = window.innerWidth;
+  canvasH = canvas.height = window.innerHeight;
+  charH = canvasH * SCALE * 1.1;
+  charW = charH * (FRAME_W / IMG_H);
+  y = canvasH * GROUND_RATIO - charH * 0.5;
+  if (x === undefined) x = canvasW * 0.2;
+}
+
+function loop(ts) {
+  requestAnimationFrame(loop);
+
+  const dt = ts - lastTime;
+  lastTime = ts;
+
+  // Animate frames
+  if (isWalking) {
+    frameTimer += dt;
+    if (frameTimer >= MS_PER_FRAME) {
+      frame = (frame + 1) % FRAME_COUNT;
+      frameTimer = 0;
+    }
+    x += SPEED;
+    if (x > canvasW + charW) x = -charW;
+  }
+
+  // Draw
+  ctx.clearRect(0, 0, canvasW, canvasH);
+
+  // Ground line — subtle
+  ctx.save();
+  const gy = canvasH * GROUND_RATIO + charH * 0.48;
+  const lg = ctx.createLinearGradient(0, gy, canvasW, gy);
+  lg.addColorStop(0, 'rgba(200,200,200,0)');
+  lg.addColorStop(0.3, 'rgba(200,200,200,0.5)');
+  lg.addColorStop(0.7, 'rgba(200,200,200,0.5)');
+  lg.addColorStop(1, 'rgba(200,200,200,0)');
+  ctx.strokeStyle = lg;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, gy);
+  ctx.lineTo(canvasW, gy);
+  ctx.stroke();
+  ctx.restore();
+
+  // Character
+  if (sprite.complete) {
+    const sx = frame * FRAME_W;
+    const cx = x - charW * 0.5;
+
+    drawShadow(x, y);
+
+    ctx.drawImage(
+      sprite,
+      sx, 0, FRAME_W, IMG_H,
+      cx, y, charW, charH
+    );
+  }
+}
+
+// Input
+function startWalk() {
+  isWalking = true;
+  hint.classList.add('hidden');
+}
+function stopWalk() {
+  isWalking = false;
+  frame = 0;
+  frameTimer = 0;
+}
+
+// Touch
+canvas.addEventListener('touchstart', e => { e.preventDefault(); startWalk(); }, { passive: false });
+canvas.addEventListener('touchend',   e => { e.preventDefault(); stopWalk();  }, { passive: false });
+canvas.addEventListener('touchcancel',e => { e.preventDefault(); stopWalk();  }, { passive: false });
+
+// Mouse
+canvas.addEventListener('mousedown', startWalk);
+canvas.addEventListener('mouseup',   stopWalk);
+canvas.addEventListener('mouseleave',stopWalk);
+
+// Keyboard
+document.addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'ArrowRight') startWalk(); });
+document.addEventListener('keyup',   e => { if (e.code === 'Space' || e.code === 'ArrowRight') stopWalk();  });
+
+window.addEventListener('resize', resize);
+resize();
+
+// Hide hint after 4s
+setTimeout(() => hint.classList.add('hidden'), 4000);
+
+sprite.onload = () => requestAnimationFrame(loop);
+</script>
+</body>
+</html>
