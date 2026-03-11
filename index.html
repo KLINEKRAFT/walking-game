@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>Colin's Walk</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    image-rendering: pixelated;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+    touch-action: manipulation;
+  }
+
+  body {
+    background: #0a0a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Press Start 2P', monospace;
+    padding: 12px 10px 24px;
+    overscroll-behavior: none;
+  }
+
+  #title {
+    color: #ffe066;
+    font-size: clamp(12px, 3.8vw, 20px);
+    margin-bottom: 12px;
+    text-shadow: 3px 3px 0 #b8860b, 0 0 20px #ffe06688;
+    letter-spacing: 2px;
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  #game-wrapper {
+    position: relative;
+    border: 4px solid #ffe066;
+    box-shadow: 0 0 0 4px #b8860b, 0 0 40px #ffe06644;
+    width: min(900px, calc(100vw - 20px));
+    background: #000;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #000;
+  }
+
+  #score-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    background: #111122;
+    border-top: 4px solid #ffe066;
+    padding: 8px 10px;
+    color: #ffe066;
+    font-size: clamp(7px, 2vw, 11px);
+    letter-spacing: 1px;
+    flex-wrap: wrap;
+  }
+
+  #instructions {
+    margin-top: 12px;
+    color: #7799ff;
+    font-size: clamp(7px, 2vw, 9px);
+    text-align: center;
+    letter-spacing: 1px;
+    opacity: 0.8;
+    animation: blink 1.4s step-end infinite;
+    line-height: 1.5;
+    max-width: 900px;
+    padding: 0 8px;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 0.25; }
+  }
+
+  #mobile-controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(72px, 1fr));
+    gap: 14px;
+    align-items: center;
+    justify-content: center;
+    width: min(460px, 100%);
+    margin-top: 18px;
+  }
+
+  .ctrl-btn {
+    background: #111122;
+    border: 3px solid #ffe066;
+    box-shadow: 0 5px 0 #b8860b, 0 0 16px #ffe06644;
+    color: #ffe066;
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(16px, 5vw, 26px);
+    width: 100%;
+    min-height: 82px;
+    border-radius: 12px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .ctrl-btn:active,
+  .ctrl-btn.pressed {
+    transform: translateY(4px);
+    box-shadow: 0 1px 0 #b8860b;
+  }
+
+  .btn-label {
+    font-size: clamp(7px, 2vw, 9px);
+    letter-spacing: 0;
+  }
+
+  @media (max-width: 520px) {
+    body {
+      justify-content: flex-start;
+      padding-top: 10px;
+    }
+
+    #mobile-controls {
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .ctrl-btn {
+      min-height: 74px;
+      border-radius: 10px;
+    }
+  }
+</style>
+</head>
+<body>
+  <div id="title">COLIN'S WALK</div>
+
+  <div id="game-wrapper">
+    <canvas id="gameCanvas" width="900" height="320"></canvas>
+    <div id="score-bar">
+      <span>SCORE: <span id="scoreVal">0</span></span>
+      <span>DIST: <span id="distVal">0</span>M</span>
+      <span>SPEED: <span id="speedVal">0</span></span>
+    </div>
+  </div>
+
+  <div id="instructions">IPHONE: HOLD LEFT / WALK / RUN &nbsp;|&nbsp; KEYBOARD: A D OR ARROWS, SHIFT TO RUN</div>
+
+  <div id="mobile-controls">
+    <button class="ctrl-btn" id="left-btn" aria-label="Walk left">
+      ◀
+      <span class="btn-label">LEFT</span>
+    </button>
+    <button class="ctrl-btn" id="walk-btn" aria-label="Walk right">
+      ▶
+      <span class="btn-label">WALK</span>
+    </button>
+    <button class="ctrl-btn" id="run-btn" aria-label="Run right">
+      ▶▶
+      <span class="btn-label">RUN</span>
+    </button>
+  </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+const W = canvas.width;
+const H = canvas.height;
+const GROUND_Y = H - 70;
+const PLAYER_MIN_X = 70;
+const PLAYER_MAX_X = W - 70;
+const TARGET_PLAYER_HEIGHT = 136; // better fit for this 192px-tall sprite
+
+const spriteImg = new Image();
+spriteImg.src = 'colin_walk.png';
+
+const FRAME_COUNT = 6;
+let frameW = 0;
+let frameH = 0;
+let spriteScale = 1;
+
+let frame = 0;
+let frameTick = 0;
+const FRAME_SPEED_BASE = 8;
+
+let playerX = 110;
+let score = 0;
+let distance = 0;
+let isMoving = false;
+let isRunning = false;
+let moveDir = 0;
+let gameSpeed = 0;
+let bgScroll = 0;
+let tileOffset = 0;
+let tick = 0;
+
+const keys = Object.create(null);
+
+window.addEventListener('keydown', (e) => {
+  keys[e.key] = true;
+  if (['ArrowLeft', 'ArrowRight', ' ', 'Shift'].includes(e.key)) {
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  keys[e.key] = false;
+});
+
+function bindBtn(btn, onPress, onRelease) {
+  const press = (e) => {
+    e.preventDefault();
+    onPress();
+    btn.classList.add('pressed');
+  };
+
+  const release = (e) => {
+    e.preventDefault();
+    onRelease();
+    btn.classList.remove('pressed');
+  };
+
+  btn.addEventListener('touchstart', press, { passive: false });
+  btn.addEventListener('touchend', release, { passive: false });
+  btn.addEventListener('touchcancel', release, { passive: false });
+  btn.addEventListener('mousedown', press);
+  btn.addEventListener('mouseup', release);
+  btn.addEventListener('mouseleave', release);
+}
+
+bindBtn(
+  document.getElementById('left-btn'),
+  () => {
+    keys.ArrowLeft = true;
+  },
+  () => {
+    keys.ArrowLeft = false;
+  }
+);
+
+bindBtn(
+  document.getElementById('walk-btn'),
+  () => {
+    keys.ArrowRight = true;
+    keys.Shift = false;
+  },
+  () => {
+    keys.ArrowRight = false;
+    keys.Shift = false;
+  }
+);
+
+bindBtn(
+  document.getElementById('run-btn'),
+  () => {
+    keys.ArrowRight = true;
+    keys.Shift = true;
+  },
+  () => {
+    keys.ArrowRight = false;
+    keys.Shift = false;
+  }
+);
+
+function getMoveDir() {
+  const left = keys.ArrowLeft || keys.a || keys.A;
+  const right = keys.ArrowRight || keys.d || keys.D;
+  if (left && !right) return -1;
+  if (right && !left) return 1;
+  return 0;
+}
+
+const stars = Array.from({ length: 60 }, () => ({
+  x: Math.random() * W,
+  y: Math.random() * (GROUND_Y * 0.55),
+  size: Math.random() < 0.2 ? 2 : 1,
+  speed: 0.08 + Math.random() * 0.12
+}));
+
+const PALETTE_BUILDINGS = ['#1a1a3a', '#22223a', '#161628', '#1e1e3a', '#12122a'];
+const PALETTE_WINDOWS = ['#ffe066', '#ff9944', '#88ccff', '#ff4488', '#44ffbb'];
+
+function makeBuildingSet(startX) {
+  const b = [];
+  let x = startX;
+
+  while (x < startX + W * 2) {
+    const w = 40 + Math.floor(Math.random() * 70);
+    const h = 60 + Math.floor(Math.random() * 160);
+    const color = PALETTE_BUILDINGS[Math.floor(Math.random() * PALETTE_BUILDINGS.length)];
+    const wins = [];
+
+    for (let wy = GROUND_Y - h + 10; wy < GROUND_Y - 10; wy += 18) {
+      for (let wx = x + 6; wx < x + w - 6; wx += 14) {
+        if (Math.random() > 0.35) {
+          wins.push({
+            x: wx,
+            y: wy,
+            c: PALETTE_WINDOWS[Math.floor(Math.random() * PALETTE_WINDOWS.length)],
+            on: Math.random() > 0.3
+          });
+        }
+      }
+    }
+
+    b.push({ x, w, h, color, windows: wins });
+    x += w + 2 + Math.floor(Math.random() * 8);
+  }
+
+  return b;
+}
+
+let buildings = makeBuildingSet(-W);
+const TILE_W = 32;
+const obstacles = [];
+let obstacleTick = 0;
+const popups = [];
+
+function spawnObstacle() {
+  obstacles.push({ x: W + 20, type: Math.random() > 0.5 ? 'crack' : 'rock' });
+}
+
+function drawStarField(factor) {
+  stars.forEach((s) => {
+    const sx = ((s.x - bgScroll * s.speed * factor) % W + W) % W;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx, s.y, s.size, s.size);
+  });
+}
+
+function drawBuildings(factor) {
+  ctx.save();
+  buildings.forEach((b) => {
+    const bx = b.x - bgScroll * factor;
+    if (bx > W + 200 || bx + b.w < -200) return;
+
+    ctx.fillStyle = b.color;
+    ctx.fillRect(bx, GROUND_Y - b.h, b.w, b.h);
+
+    b.windows.forEach((w) => {
+      if (!w.on) return;
+      ctx.fillStyle = w.c;
+      ctx.fillRect(w.x + (bx - b.x), w.y, 8, 6);
+    });
+
+    ctx.fillStyle = '#ffffff22';
+    ctx.fillRect(bx, GROUND_Y - b.h, b.w, 2);
+  });
+  ctx.restore();
+}
+
+function drawGround() {
+  const g = ctx.createLinearGradient(0, GROUND_Y - 40, 0, GROUND_Y);
+  g.addColorStop(0, '#110022');
+  g.addColorStop(1, '#220033');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, GROUND_Y - 40, W, 40);
+
+  ctx.fillStyle = '#2a2a3a';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+
+  ctx.fillStyle = '#ffe066';
+  ctx.fillRect(0, GROUND_Y, W, 3);
+
+  ctx.fillStyle = '#333344';
+  for (let i = 0; i < Math.ceil(W / TILE_W) + 2; i++) {
+    ctx.fillRect((i * TILE_W) - (tileOffset % TILE_W), GROUND_Y + 3, 1, H - GROUND_Y - 3);
+  }
+
+  ctx.fillRect(0, GROUND_Y + 18, W, 1);
+  ctx.fillRect(0, GROUND_Y + 33, W, 1);
+}
+
+function drawObstacles() {
+  obstacles.forEach((o) => {
+    if (o.type === 'crack') {
+      ctx.strokeStyle = '#ffe06688';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(o.x, GROUND_Y + 4);
+      ctx.lineTo(o.x + 8, GROUND_Y + 10);
+      ctx.lineTo(o.x + 16, GROUND_Y + 5);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#665544';
+      ctx.fillRect(o.x, GROUND_Y - 6, 12, 8);
+      ctx.fillStyle = '#887766';
+      ctx.fillRect(o.x + 2, GROUND_Y - 8, 8, 4);
+    }
+  });
+}
+
+function drawPlayer() {
+  if (!frameW || !frameH) return;
+
+  const dw = frameW * spriteScale;
+  const dh = frameH * spriteScale;
+  const dx = playerX - dw / 2;
+  const dy = GROUND_Y - dh + 2;
+
+  ctx.save();
+  if (moveDir < 0) {
+    ctx.translate(playerX, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(
+      spriteImg,
+      frame * frameW,
+      0,
+      frameW,
+      frameH,
+      -dw / 2,
+      dy,
+      dw,
+      dh
+    );
+  } else {
+    ctx.drawImage(
+      spriteImg,
+      frame * frameW,
+      0,
+      frameW,
+      frameH,
+      dx,
+      dy,
+      dw,
+      dh
+    );
+  }
+  ctx.restore();
+}
+
+function drawHUD() {
+  popups.forEach((p) => {
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = '#ffe066';
+    ctx.font = '8px "Press Start 2P"';
+    ctx.fillText('+' + p.val, p.x, p.y);
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawScanlines() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  for (let y = 0; y < H; y += 4) {
+    ctx.fillRect(0, y, W, 2);
+  }
+}
+
+function drawMoon() {
+  ctx.fillStyle = '#fffde8';
+  ctx.beginPath();
+  ctx.arc(W - 80, 50, 22, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#e8e0b0';
+  ctx.beginPath();
+  ctx.arc(W - 72, 44, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(W - 88, 56, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  const mg = ctx.createRadialGradient(W - 80, 50, 10, W - 80, 50, 50);
+  mg.addColorStop(0, 'rgba(255, 253, 200, 0.18)');
+  mg.addColorStop(1, 'rgba(255, 253, 200, 0)');
+  ctx.fillStyle = mg;
+  ctx.beginPath();
+  ctx.arc(W - 80, 50, 50, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function gameLoop() {
+  tick++;
+  moveDir = getMoveDir();
+  isMoving = moveDir !== 0;
+  isRunning = isMoving && !!keys.Shift;
+
+  const walkSpeed = isMoving ? (isRunning ? 5 : 2.5) : 0;
+  gameSpeed = isMoving ? (isRunning ? 2 : 1) : 0;
+
+  if (isMoving) {
+    playerX += moveDir * (isRunning ? 3.4 : 2.2);
+    playerX = Math.max(PLAYER_MIN_X, Math.min(PLAYER_MAX_X, playerX));
+
+    bgScroll += walkSpeed;
+    tileOffset += walkSpeed;
+    distance += walkSpeed * 0.05;
+    score += isRunning ? 2 : 1;
+    obstacleTick++;
+
+    if (obstacleTick > 120 / Math.max(gameSpeed, 1)) {
+      spawnObstacle();
+      obstacleTick = 0;
+    }
+
+    const frameSpeed = Math.max(2, Math.round(FRAME_SPEED_BASE / Math.max(gameSpeed, 1)));
+    frameTick++;
+    if (frameTick >= frameSpeed) {
+      frame = (frame + 1) % FRAME_COUNT;
+      frameTick = 0;
+    }
+  } else {
+    frame = 0;
+    frameTick = 0;
+  }
+
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    obstacles[i].x -= Math.max(walkSpeed, 1.2);
+    if (obstacles[i].x < -50) {
+      obstacles.splice(i, 1);
+    }
+  }
+
+  if (isMoving && tick % 60 === 0) {
+    popups.push({ x: playerX + 20, y: GROUND_Y - 80, val: isRunning ? 10 : 5, alpha: 1 });
+  }
+
+  for (let i = popups.length - 1; i >= 0; i--) {
+    popups[i].y -= 0.8;
+    popups[i].alpha -= 0.015;
+    if (popups[i].alpha <= 0) {
+      popups.splice(i, 1);
+    }
+  }
+
+  if (bgScroll > W * 1.5) {
+    const lastX = Math.max(...buildings.map((b) => b.x + b.w));
+    buildings.push(...makeBuildingSet(lastX + 10));
+    buildings = buildings.filter((b) => b.x + b.w > bgScroll - W * 2);
+    bgScroll = 0;
+  }
+
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  sky.addColorStop(0, '#05050f');
+  sky.addColorStop(0.6, '#0d0d2b');
+  sky.addColorStop(1, '#1a0a2e');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  drawMoon();
+  drawStarField(0.3);
+  drawBuildings(0.6);
+  drawGround();
+  drawObstacles();
+  drawPlayer();
+  drawHUD();
+  drawScanlines();
+
+  document.getElementById('scoreVal').textContent = score;
+  document.getElementById('distVal').textContent = Math.floor(distance);
+  document.getElementById('speedVal').textContent = gameSpeed ? (gameSpeed === 2 ? 'RUN' : 'WALK') : 'IDLE';
+
+  requestAnimationFrame(gameLoop);
+}
+
+spriteImg.onload = () => {
+  frameW = Math.round(spriteImg.width / FRAME_COUNT);
+  frameH = spriteImg.height;
+  spriteScale = TARGET_PLAYER_HEIGHT / frameH;
+  requestAnimationFrame(gameLoop);
+};
+
+spriteImg.onerror = () => {
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '16px sans-serif';
+  ctx.fillText('Could not load colin_walk.png', 20, 40);
+};
+</script>
+</body>
+</html>
